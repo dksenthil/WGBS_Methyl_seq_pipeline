@@ -1,0 +1,121 @@
+---
+title: "WGBS:HEK293_Methyl-seq pipeline"
+author: "Senthilkumar Kailasam"
+date: "May 24, 2018"
+output: html_document
+
+
+
+
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### ** **
+
+
+
+
+
+
+#### ***Prerequisites***
+
+  + BISMARK
+  + BOWTIE2
+  + SAMTOOLS
+
+
+
+#### **1. Preprocessing**
+
+##### **a) using Trimmomatic**
+*Adaptor trimming and quality filtering.*
+
+
+
+
+```{bash, eval=F}
+# list inputs into a file
+$ cat  list_raw_name
+SRR1020524
+SRR1020525
+SRR1020526
+SRR1020527
+SRR1020528
+
+# run run_trimmomatics.sh
+$ cat run_trimmomatics.sh
+$SOFTPATH=<custompath>
+
+for file in `cat list_raw_name`
+do
+	rm -f input_forward.fq.bz2  input_reverse.fq.bz2
+	ln -s ${file}_1.fastq.bz2 input_forward.fq.bz2 
+	ln -s ${file}_2.fastq.bz2 input_reverse.fq.bz2 
+	#${file}
+	java -jar $SOFTPATH/trimmomatic-0.36.jar PE -phred33  input_forward.fq.bz2 input_reverse.fq.bz2 output_forward_paired.fq.gz output_forward_unpaired.fq.gz output_reverse_paired.fq.gz output_reverse_unpaired.fq.gz  ILLUMINACLIP:$SOFTPATH/adapters/TruSeq2-PE.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
+	mv output_forward_paired.fq.gz   ${file}_1_output_forward_paired.fq.gz 
+	mv output_forward_unpaired.fq.gz ${file}_1_output_forward_unpaired.fq.gz
+	mv output_reverse_paired.fq.gz   ${file}_2_output_reverse_paired.fq.gz
+	mv output_reverse_unpaired.fq.gz ${file}_2_output_reverse_unpaired.fq.gz
+done
+
+
+```
+
+##### **(b) If using Trimgalore)**
+
+```{bash,eval=F}
+$ cat run_wgbs.sh 
+for file in `cat list_raw_name`
+do
+	#trim edges using trim galore
+	echo $$file
+	/project/utilities/TrimGalore-0.5.0/trim_galore --paired --fastqc --trim1 ${file}_1.fastq.bz2 ${file}_2.fastq.bz2
+done
+
+```
+
+#### **2. Reference genome preparation**
+
+```{bash,eval=F}
+ FILEPATH=`pwd`
+bismark_genome_preparation --bowtie2 $FILEPATH/Bisulphite-seq_HEK293/Homo_sapiens.GRCh37.75
+
+```
+
+
+#### **3. Align using Bowtie2**
+
+```{bash,eval=F}
+ FILEPATH=`pwd`
+/project/utilities/Bismark_v0.19.1/bismark --bowtie2 -N 1 -p 2 --parallel 2   --nucleotide_coverage  $FILEPATH/Bisulphite-seq_HEK293/Homo_sapiens.GRCh37.75 -1 SRR1020524_1_output_forward_paired.fq.gz  -2 SRR1020524_2_output_reverse_paired.fq.gz
+
+```
+*Note: Do the same for all the replicates.*
+
+
+#### **4. Merge the alignment BAM file using SAMTOOLS **
+
+```{bash,eval=F}
+samtools cat  -o combined_output_forward_paired_bismark_bt2_pe.bam SRR1020524_1_output_forward_paired_bismark_bt2_pe.bam SRR1020525_1_output_forward_paired_bismark_bt2_pe.bam SRR1020526_1_output_forward_paired_bismark_bt2_pe.bam SRR1020527_1_output_forward_paired_bismark_bt2_pe.bam SRR1020528_1_output_forward_paired_bismark_bt2_pe.bam 
+```
+
+#### **5. Deduplication using BISMARK**
+
+```{bash,eval=F}
+
+/project/utilities/Bismark_v0.19.1/deduplicate_bismark -p --bam combined_output_forward_paired_bismark_bt2_pe.bam 
+```
+
+#### **6.Methylation Extraction using BISMARK**
+
+```{bash,eval=F}
+/project/utilities/Bismark_v0.19.1/bismark_methylation_extractor --ignore_r2 3 --cytosine_report --CX --split_by_chromosome --gzip -p --no_overlap --ample_memory   --bedGraph --parallel 8 --genome_folder /scratch/senthil/Bisulphite-seq_HEK293/Homo_sapiens.GRCh37.75 combined_output_forward_paired_bismark_bt2_pe.deduplicated.bam 
+
+
+```
+
